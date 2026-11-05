@@ -27,14 +27,15 @@ model Evento {
   correo          String? // Correo del Contacto
   idiomas         String? // p.ej. "EN - ES" (columna futura del Sheet)
 
-  // Estado del embudo
-  estatus         String    @default("PROSPECTO") // PROSPECTO | CONFIRMADO | FACTURADO | CANCELADO
+  // Estado del embudo:
+  // PROSPECTO → CONFIRMADO → REALIZADO → PAGADO | CANCELADO (en cualquier punto antes de trabajar)
+  estatus         String    @default("PROSPECTO")
+  razonCancelacion String?   // motivo de la cancelación (opcional)
 
   // Fechas y horario (Fechas Seleccionadas en texto libre + fechas parseadas)
   fechasTexto     String? // tal cual está en el Sheet: "15 - 19 Noviembre"
   fechaInicio     DateTime? // parseada de fechasTexto, para ordenar y avisos
   fechaFin        DateTime? // null = evento de un solo día
-  fechasExtra     String? // fechas intermitentes adicionales
   dias            Int? // Total de Días
   horaInicio      String? // "09:00"
   horaFin         String? // "16:00"
@@ -47,7 +48,9 @@ model Evento {
   ciudad          String? // ciudad cuando es foráneo
 
   // Dinero (MXN)
-  tarifa          Float // Tarifa Total
+  tarifa          Float // Tarifa total (base, sin IVA)
+  tarifaPorDia    Float? // tarifa unitaria por día, opcional
+  impuestosTipo   String? // MORAL | FAE — cálculo informativo de impuestos
   anticipo        Float? // Anticipo Pagado
   saldo           Float? // Saldo Pendiente
   fechaLimitePago String? // Fecha Límite de Pago (texto libre)
