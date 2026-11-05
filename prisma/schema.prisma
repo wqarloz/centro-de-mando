@@ -1,0 +1,64 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Eventos de interpretación — Centro de Mando
+// Estructura espejo del Google Sheet "CRM Interpretacion - Panel de Eventos".
+// Los campos marcados como opcionales son columnas que el Sheet puede traer vacías.
+model Evento {
+  id              String    @id @default(cuid())
+  idEvento        String?   @unique // ID Evento del Sheet (p.ej. "6b018e20")
+
+  // Identificación del cliente
+  cliente         String // Cliente / Empresa
+  contacto        String? // Nombre del Contacto
+  telefono        String? // Número del Cliente (10 dígitos, México)
+  correo          String? // Correo del Contacto
+  idiomas         String? // p.ej. "EN - ES" (columna futura del Sheet)
+
+  // Estado del embudo
+  estatus         String    @default("PROSPECTO") // PROSPECTO | CONFIRMADO | FACTURADO | CANCELADO
+
+  // Fechas y horario (Fechas Seleccionadas en texto libre + fechas parseadas)
+  fechasTexto     String? // tal cual está en el Sheet: "15 - 19 Noviembre"
+  fechaInicio     DateTime? // parseada de fechasTexto, para ordenar y avisos
+  fechaFin        DateTime? // null = evento de un solo día
+  fechasExtra     String? // fechas intermitentes adicionales
+  dias            Int? // Total de Días
+  horaInicio      String? // "09:00"
+  horaFin         String? // "16:00"
+  horario         String? // respaldo: "09:00 - 16:00" en un solo campo
+  tipoBloque      String? // Jornada Completa / Medio Día / Hora
+
+  // Contexto del evento
+  tema            String? // Tema / Industria
+  modalidad       String // PRESENCIAL_CDMX | REMOTO | FORANEO
+  ciudad          String? // ciudad cuando es foráneo
+
+  // Dinero (MXN)
+  tarifa          Float // Tarifa Total
+  anticipo        Float? // Anticipo Pagado
+  saldo           Float? // Saldo Pendiente
+  fechaLimitePago String? // Fecha Límite de Pago (texto libre)
+
+  // Extras
+  linkGlosario    String? // Link a Glosario
+  notas           String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([estatus])
+  @@index([fechaInicio])
+}
