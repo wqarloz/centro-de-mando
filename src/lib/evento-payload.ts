@@ -1,7 +1,12 @@
 // Validación y normalización del payload de un evento.
 // Compartido por POST (crear) y PUT (editar) para que ambos calculen
 // igual los campos derivados: horario, días, tipo de bloque y saldo.
-import { ESTATUS_VALIDOS, MODALIDADES_VALIDAS } from "./estatus";
+import {
+  ESTATUS_VALIDOS,
+  IDIOMAS_VALIDOS,
+  IMPUESTOS_VALIDOS,
+  MODALIDADES_VALIDAS,
+} from "./estatus";
 
 const textoLimpio = (v: unknown): string | null => {
   if (typeof v !== "string") return null;
@@ -35,10 +40,10 @@ export type PayloadEvento = {
   correo: string | null;
   idiomas: string | null;
   estatus: string;
+  razonCancelacion: string | null;
   fechasTexto: string | null;
   fechaInicio: Date | null;
   fechaFin: Date | null;
-  fechasExtra: string | null;
   dias: number | null;
   horaInicio: string | null;
   horaFin: string | null;
@@ -48,6 +53,8 @@ export type PayloadEvento = {
   modalidad: string;
   ciudad: string | null;
   tarifa: number;
+  tarifaPorDia: number | null;
+  impuestosTipo: string | null;
   anticipo: number;
   saldo: number;
   fechaLimitePago: string | null;
@@ -88,6 +95,26 @@ export function parsearEventoPayload(
   const horario =
     horaInicio && horaFin ? `${horaInicio} - ${horaFin}` : horaInicio || null;
 
+  const idiomas = textoLimpio(body.idiomas);
+  const idiomasValido =
+    idiomas && (IDIOMAS_VALIDOS as readonly string[]).includes(idiomas)
+      ? idiomas
+      : null;
+
+  const impuestosRaw = textoLimpio(body.impuestosTipo);
+  const impuestosTipo =
+    impuestosRaw && (IMPUESTOS_VALIDOS as string[]).includes(impuestosRaw)
+      ? impuestosRaw
+      : null;
+
+  const tarifaPorDiaNum = Number(body.tarifaPorDia);
+  const tarifaPorDia =
+    body.tarifaPorDia == null || body.tarifaPorDia === ""
+      ? null
+      : Number.isFinite(tarifaPorDiaNum) && tarifaPorDiaNum > 0
+        ? tarifaPorDiaNum
+        : null;
+
   const anticipoNum = Number(body.anticipo);
   const anticipo =
     Number.isFinite(anticipoNum) && anticipoNum >= 0 ? anticipoNum : 0;
@@ -120,12 +147,12 @@ export function parsearEventoPayload(
       contacto: textoLimpio(body.contacto),
       telefono: textoLimpio(body.telefono),
       correo: textoLimpio(body.correo),
-      idiomas: textoLimpio(body.idiomas),
+      idiomas: idiomasValido,
       estatus,
+      razonCancelacion: textoLimpio(body.razonCancelacion),
       fechasTexto: textoLimpio(body.fechasTexto),
       fechaInicio,
       fechaFin,
-      fechasExtra: textoLimpio(body.fechasExtra),
       dias,
       horaInicio,
       horaFin,
@@ -135,6 +162,8 @@ export function parsearEventoPayload(
       modalidad,
       ciudad: modalidad === "FORANEO" ? textoLimpio(body.ciudad) : null,
       tarifa: tarifaNum,
+      tarifaPorDia,
+      impuestosTipo,
       anticipo,
       saldo,
       fechaLimitePago: textoLimpio(body.fechaLimitePago),
