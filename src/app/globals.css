@@ -63,6 +63,7 @@
   --color-peligro-tinta: var(--peligro-tinta);
   --color-estado-prospecto: var(--estado-prospecto);
   --color-estado-confirmado: var(--estado-confirmado);
+  --color-estado-realizado: var(--estado-realizado);
   --color-estado-facturado: var(--estado-facturado);
   --color-estado-cancelado: var(--estado-cancelado);
 }
@@ -98,6 +99,7 @@
   /* Estatus */
   --estado-prospecto: #fbbf24;
   --estado-confirmado: #34d399;
+  --estado-realizado: #38bdf8;
   --estado-facturado: #d4b47e;
   --estado-cancelado: #71717a;
   /* Atuendo */
