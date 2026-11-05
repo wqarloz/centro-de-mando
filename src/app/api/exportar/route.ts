@@ -13,8 +13,11 @@ const MESES = [
 const ESTATUS_ETIQUETA: Record<string, string> = {
   PROSPECTO: "Prospecto",
   CONFIRMADO: "Confirmado",
-  FACTURADO: "Facturado",
+  REALIZADO: "Realizado",
+  PAGADO: "Pagado",
   CANCELADO: "Cancelado",
+  // Legado anterior a v0.5: ya trabajado, en espera de cerrar el pago.
+  FACTURADO: "Realizado",
 };
 
 const escapar = (v: string | number | null | undefined) => {
@@ -66,6 +69,10 @@ export async function GET() {
     "Saldo Pendiente",
     "Fecha Límite de Pago",
     "Link a Glosario",
+    "Idiomas",
+    "Tarifa por Día",
+    "Impuestos",
+    "Motivo de Cancelación",
   ];
 
   const lineas = [ENCABEZADOS.join(",")];
@@ -98,6 +105,14 @@ export async function GET() {
         e.saldo ?? 0,
         e.fechaLimitePago,
         e.linkGlosario,
+        e.idiomas,
+        e.tarifaPorDia ?? "",
+        e.impuestosTipo === "MORAL"
+          ? "Persona moral"
+          : e.impuestosTipo === "FAE"
+            ? "FAE"
+            : "",
+        e.razonCancelacion,
       ]
         .map(escapar)
         .join(",")
