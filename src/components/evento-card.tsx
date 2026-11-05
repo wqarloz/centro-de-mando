@@ -17,6 +17,7 @@ import {
   User,
   Video,
   X,
+  XCircle,
 } from "lucide-react";
 import {
   differenceInCalendarDays,
@@ -25,6 +26,7 @@ import {
 } from "date-fns";
 import { es } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,11 +39,14 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
+  calcularImpuestos,
   ESTATUS_CONFIG,
   EventoDTO,
+  formatoDinero,
   formatoTarifa,
   MODALIDAD_CONFIG,
   normalizarWhatsApp,
+  tituloImpuestos,
   type Estatus,
 } from "@/lib/estatus";
 import { SUPERFICIE_TARJETA } from "@/lib/temas";
@@ -52,7 +57,7 @@ import EventoForm from "@/components/evento-form";
 interface Props {
   evento: EventoDTO;
   index: number;
-  onCambiarEstatus: (id: string, estatus: Estatus) => void;
+  onCambiarEstatus: (id: string, estatus: Estatus, razon?: string) => void;
   onEliminar: (id: string) => void;
   onEditado: (evento: EventoDTO) => void;
 }
@@ -87,6 +92,7 @@ const MINI_ICONO =
 
 export default function EventoCard({ evento, index, onCambiarEstatus, onEliminar, onEditado }: Props) {
   const [flash, setFlash] = useState(false);
+  const [razon, setRazon] = useState("");
   const timeoutRef = useRef<number | null>(null);
 
   useEffect(
@@ -120,23 +126,31 @@ export default function EventoCard({ evento, index, onCambiarEstatus, onEliminar
         ? Plane
         : MapPin;
 
+  // ── El paso siguiente del ciclo de vida ──
+  // Prospecto → Confirmado → Realizado → Pagado. Cancelado se reactiva.
   const primaria =
     evento.estatus === "PROSPECTO"
       ? { label: "Confirmar", siguiente: "CONFIRMADO" as Estatus, exito: "Confirmado", estilo: "bg-exito text-exito-tinta hover:bg-exito/85" }
       : evento.estatus === "CONFIRMADO"
-        ? { label: "Marcar facturado", siguiente: "FACTURADO" as Estatus, exito: "Facturado", estilo: "bg-acento text-acento-tinta hover:bg-acento-claro" }
-        : evento.estatus === "CANCELADO"
-          ? { label: "Reactivar", siguiente: "PROSPECTO" as Estatus, exito: "Reactivado", estilo: "border border-linea-hover bg-tarjeta-baja text-tinta-suave hover:border-acento/40" }
-          : null;
+        ? { label: "Marcar realizado", siguiente: "REALIZADO" as Estatus, exito: "Realizado", estilo: "bg-acento text-acento-tinta hover:bg-acento-claro" }
+        : evento.estatus === "REALIZADO"
+          ? { label: "Marcar pagado", siguiente: "PAGADO" as Estatus, exito: "Pagado", estilo: "bg-exito text-exito-tinta hover:bg-exito/85" }
+          : evento.estatus === "CANCELADO"
+            ? { label: "Reactivar", siguiente: "PROSPECTO" as Estatus, exito: "Reactivado", estilo: "border border-linea-hover bg-tarjeta-baja text-tinta-suave hover:border-acento/40" }
+            : null; // PAGADO: ciclo completado
 
   const deshacer: { siguiente: Estatus; titulo: string } | null =
     evento.estatus === "CONFIRMADO"
       ? { siguiente: "PROSPECTO", titulo: "Regresar a prospecto" }
-      : evento.estatus === "FACTURADO"
+      : evento.estatus === "REALIZADO"
         ? { siguiente: "CONFIRMADO", titulo: "Regresar a confirmado" }
-        : null;
+        : evento.estatus === "PAGADO"
+          ? { siguiente: "REALIZADO", titulo: "Reabrir el pago — regresar a realizado" }
+          : null;
 
-  const puedeCancelar = evento.estatus === "PROSPECTO" || evento.estatus === "CONFIRMADO";
+  // La cancelación solo procede antes de que el evento se trabaje.
+  const puedeCancelar =
+    evento.estatus === "PROSPECTO" || evento.estatus === "CONFIRMADO";
 
   const manejarPrimaria = () => {
     if (!primaria) return;
@@ -156,7 +170,11 @@ export default function EventoCard({ evento, index, onCambiarEstatus, onEliminar
           ? `en ${dias} días`
           : null;
   const diasUrgente =
-    dias !== null && dias >= 0 && dias <= 7 && evento.estatus !== "CANCELADO" && evento.estatus !== "FACTURADO";
+    dias !== null &&
+    dias >= 0 &&
+    dias <= 7 &&
+    evento.estatus !== "CANCELADO" &&
+    evento.estatus !== "PAGADO";
 
   // Fechas para mostrar
   const fechasMostrar = inicio
@@ -174,11 +192,19 @@ export default function EventoCard({ evento, index, onCambiarEstatus, onEliminar
   // Dinero
   const anticipo = evento.anticipo ?? 0;
   const saldo = evento.saldo ?? Math.max(evento.tarifa - anticipo, 0);
-  const saldoPendiente = saldo > 0 && evento.estatus !== "CANCELADO";
+  const saldoPendiente =
+    saldo > 0 && evento.estatus !== "CANCELADO" && evento.estatus !== "PAGADO";
   const vence = formatoLimite(evento.fechaLimitePago);
+  const porDia = evento.tarifaPorDia ?? null;
+  const imp = evento.impuestosTipo
+    ? calcularImpuestos(evento.tarifa, evento.impuestosTipo)
+    : null;
+  const impTitulo = evento.impuestosTipo
+    ? tituloImpuestos(evento.impuestosTipo)
+    : null;
 
   const tarifaClase =
-    evento.estatus === "FACTURADO"
+    evento.estatus === "PAGADO"
       ? "text-estado-facturado"
       : evento.estatus === "CANCELADO"
         ? "text-tinta-muda"
@@ -323,11 +349,6 @@ export default function EventoCard({ evento, index, onCambiarEstatus, onEliminar
         {evento.dias && evento.dias > 1 ? (
           <span className="text-tinta-muda">· {evento.dias} días</span>
         ) : null}
-        {evento.fechasExtra ? (
-          <span className="rounded-md border border-linea-fuerte px-1.5 py-0.5 text-[10px] text-tinta-muda">
-            + {evento.fechasExtra}
-          </span>
-        ) : null}
         {etiquetaDias ? (
           <span
             className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
@@ -347,6 +368,14 @@ export default function EventoCard({ evento, index, onCambiarEstatus, onEliminar
         </p>
       ) : null}
 
+      {/* Motivo de la cancelación */}
+      {evento.estatus === "CANCELADO" && evento.razonCancelacion ? (
+        <p className="mt-1.5 truncate text-[11px] italic text-peligro/90">
+          <XCircle className="mr-1 inline h-3 w-3" aria-hidden />
+          Motivo: {evento.razonCancelacion}
+        </p>
+      ) : null}
+
       <div className="my-4 h-px bg-gradient-to-r from-transparent via-linea-fuerte to-transparent" />
 
       {/* Tarifa + detalles de dinero */}
@@ -357,8 +386,16 @@ export default function EventoCard({ evento, index, onCambiarEstatus, onEliminar
           </span>
           <span className="text-[10px] uppercase tracking-wider text-tinta-muda">MXN</span>
         </p>
-        {anticipo > 0 || saldo > 0 ? (
+        {anticipo > 0 || saldo > 0 || porDia || imp ? (
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-tinta-muda">
+            {porDia ? (
+              <span>
+                Por día{" "}
+                <span className="font-medium text-tinta-suave">
+                  $ {formatoDinero(porDia)}
+                </span>
+              </span>
+            ) : null}
             {anticipo > 0 ? (
               <span>
                 Anticipo{" "}
@@ -378,6 +415,14 @@ export default function EventoCard({ evento, index, onCambiarEstatus, onEliminar
                 {saldoPendiente && vence ? (
                   <span className="text-tinta-muda"> · vence {vence}</span>
                 ) : null}
+              </span>
+            ) : null}
+            {imp ? (
+              <span title={impTitulo ?? undefined}>
+                {evento.impuestosTipo === "MORAL" ? "Neto a recibir" : "A recibir (con IVA)"}{" "}
+                <span className="font-medium text-tinta-suave">
+                  $ {formatoDinero(imp.neto)}
+                </span>
               </span>
             ) : null}
           </div>
@@ -439,17 +484,68 @@ export default function EventoCard({ evento, index, onCambiarEstatus, onEliminar
           </Button>
         ) : null}
 
+        {/* Cancelar — con motivo opcional */}
         {puedeCancelar ? (
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => onCambiarEstatus(evento.id, "CANCELADO")}
-            aria-label={`Cancelar evento — ${evento.cliente}`}
-            title="Cancelar evento"
-            className="h-11 w-11 shrink-0 rounded-lg border-linea-fuerte bg-tarjeta text-tinta-muda hover:border-peligro/30 hover:bg-peligro/10 hover:text-peligro"
-          >
-            <X className="h-4 w-4" aria-hidden />
-          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label={`Cancelar evento — ${evento.cliente}`}
+                title="Cancelar evento"
+                className="h-11 w-11 shrink-0 rounded-lg border-linea-fuerte bg-tarjeta text-tinta-muda hover:border-peligro/30 hover:bg-peligro/10 hover:text-peligro"
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent
+              style={SUPERFICIE_TARJETA}
+              className="radio-tarjeta border-linea-fuerte bg-tarjeta-baja text-tinta-suave"
+            >
+              <AlertDialogHeader>
+                <AlertDialogTitle className="font-display text-lg text-tinta">
+                  ¿Cancelar «{evento.cliente}»?
+                </AlertDialogTitle>
+                <AlertDialogDescription className="text-tinta-muda">
+                  El evento pasará a cancelado. Si hubo multa o anticipo
+                  retenido, puedes ajustar el anticipo editando el evento
+                  después.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <div className="space-y-1.5">
+                <label
+                  className="text-xs font-medium text-tinta-suave"
+                  htmlFor={`razon-${evento.id}`}
+                >
+                  Motivo de la cancelación (opcional)
+                </label>
+                <Input
+                  id={`razon-${evento.id}`}
+                  value={razon}
+                  onChange={(e) => setRazon(e.target.value)}
+                  placeholder="El cliente dio marcha atrás, presupuesto…"
+                  className="h-10 border-linea-fuerte bg-panel placeholder:text-tinta-muda"
+                />
+              </div>
+              <AlertDialogFooter>
+                <AlertDialogCancel
+                  onClick={() => setRazon("")}
+                  className="rounded-lg border-linea-fuerte bg-tarjeta text-tinta-suave hover:text-tinta"
+                >
+                  Mejor no
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => {
+                    onCambiarEstatus(evento.id, "CANCELADO", razon.trim() || undefined);
+                    setRazon("");
+                  }}
+                  className="rounded-lg bg-peligro text-sm font-semibold text-peligro-tinta hover:bg-peligro/80"
+                >
+                  Sí, cancelar
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         ) : null}
 
         {/* Eliminar — con confirmación */}

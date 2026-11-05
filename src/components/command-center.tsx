@@ -22,7 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useHoy } from "@/hooks/use-hoy";
 
 type Filtro = "TODOS" | Estatus;
-type Vista = "tarjetas" | "analisis";
+type Vista = "eventos" | "analisis";
 
 const FILTROS: { valor: Filtro; label: string }[] = [
   { valor: "TODOS", label: "Todos" },
@@ -36,22 +36,45 @@ interface Props {
 export default function CommandCenter({ eventosIniciales }: Props) {
   const [eventos, setEventos] = useState(eventosIniciales);
   const [filtro, setFiltro] = useState<Filtro>("TODOS");
-  const [vista, setVista] = useState<Vista>("tarjetas");
+  const [vista, setVista] = useState<Vista>("eventos");
   const { toast } = useToast();
 
   // Actualización optimista: la UI cambia al instante y se revierte si falla.
-  const cambiarEstatus = async (id: string, nuevo: Estatus) => {
+  // Al marcar PAGADO, el mesero además ajusta el anticipo en la base;
+  // la respuesta del servidor se integra para que todo el comedor coincida.
+  const cambiarEstatus = async (id: string, nuevo: Estatus, razon?: string) => {
     const snapshot = eventos;
+    const anterior = eventos.find((e) => e.id === id);
     setEventos((prev) =>
-      prev.map((e) => (e.id === id ? { ...e, estatus: nuevo } : e))
+      prev.map((e) =>
+        e.id === id
+          ? {
+              ...e,
+              estatus: nuevo,
+              ...(nuevo === "CANCELADO" ? { razonCancelacion: razon ?? null } : {}),
+              ...(anterior?.estatus === "CANCELADO" && nuevo === "PROSPECTO"
+                ? { razonCancelacion: null }
+                : {}),
+            }
+          : e
+      )
     );
     try {
       const res = await fetch(`/api/eventos/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ estatus: nuevo }),
+        body: JSON.stringify({ estatus: nuevo, razonCancelacion: razon ?? null }),
       });
       if (!res.ok) throw new Error("respuesta no ok");
+      const actualizado: EventoDTO = await res.json();
+      setEventos((prev) => prev.map((e) => (e.id === actualizado.id ? actualizado : e)));
+      if (anterior?.estatus === "PAGADO" && nuevo === "REALIZADO") {
+        toast({
+          title: "Pago reabierto",
+          description:
+            "El anticipo quedó en $ 0 — edítalo si ya habías recibido un pago parcial.",
+        });
+      }
     } catch {
       setEventos(snapshot);
       toast({
@@ -95,7 +118,8 @@ export default function CommandCenter({ eventosIniciales }: Props) {
     const conteo: Record<Estatus, number> = {
       PROSPECTO: 0,
       CONFIRMADO: 0,
-      FACTURADO: 0,
+      REALIZADO: 0,
+      PAGADO: 0,
       CANCELADO: 0,
     };
     let saldoPorCobrar = 0;
@@ -108,7 +132,11 @@ export default function CommandCenter({ eventosIniciales }: Props) {
       activos += 1;
       carteraTotal += e.tarifa;
       anticipos += e.anticipo ?? 0;
-      saldoPorCobrar += e.saldo ?? Math.max(e.tarifa - (e.anticipo ?? 0), 0);
+      // Lo pagado nunca es deuda: aunque un saldo viejo quede guardado,
+      // el estado PAGADO significa transacción cerrada.
+      if (e.estatus !== "PAGADO") {
+        saldoPorCobrar += e.saldo ?? Math.max(e.tarifa - (e.anticipo ?? 0), 0);
+      }
     }
     return { conteo, saldoPorCobrar, carteraTotal, anticipos, activos };
   }, [eventos]);
@@ -127,11 +155,12 @@ export default function CommandCenter({ eventosIniciales }: Props) {
     filtro === "TODOS" ? ordenados : ordenados.filter((e) => e.estatus === filtro);
 
   const stats: { label: string; valor: string; clase: string }[] =
-    vista === "tarjetas"
+    vista === "eventos"
       ? [
           { label: "Prospectos", valor: String(conteo.PROSPECTO), clase: "text-estado-prospecto" },
           { label: "Confirmados", valor: String(conteo.CONFIRMADO), clase: "text-estado-confirmado" },
-          { label: "Facturados", valor: String(conteo.FACTURADO), clase: "text-estado-facturado" },
+          { label: "Realizados", valor: String(conteo.REALIZADO), clase: "text-estado-realizado" },
+          { label: "Pagados", valor: String(conteo.PAGADO), clase: "text-estado-facturado" },
           { label: "Saldo por cobrar", valor: `$ ${formatoTarifa(saldoPorCobrar)}`, clase: "text-acento-claro" },
         ]
       : [
@@ -178,7 +207,7 @@ export default function CommandCenter({ eventosIniciales }: Props) {
             </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-3">
+          <div className="mt-6 grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5">
             {stats.map((s) => (
               <div
                 key={s.label}
@@ -209,11 +238,11 @@ export default function CommandCenter({ eventosIniciales }: Props) {
             >
               <button
                 role="tab"
-                aria-selected={vista === "tarjetas"}
-                onClick={() => setVista("tarjetas")}
+                aria-selected={vista === "eventos"}
+                onClick={() => setVista("eventos")}
                 className="relative inline-flex h-10 items-center justify-center rounded-full outline-none focus-visible:ring-1 focus-visible:ring-acento/50"
               >
-                {vista === "tarjetas" ? (
+                {vista === "eventos" ? (
                   <motion.span
                     layoutId="indicador-vista"
                     transition={{ type: "spring", stiffness: 420, damping: 34 }}
@@ -223,13 +252,13 @@ export default function CommandCenter({ eventosIniciales }: Props) {
                 ) : null}
                 <span
                   className={`relative z-10 inline-flex items-center gap-1.5 text-xs font-medium transition-colors ${
-                    vista === "tarjetas"
+                    vista === "eventos"
                       ? "text-acento-claro"
                       : "text-tinta-muda hover:text-tinta-suave"
                   }`}
                 >
                   <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
-                  Tarjetas
+                  Eventos
                 </span>
               </button>
               <button
@@ -259,7 +288,7 @@ export default function CommandCenter({ eventosIniciales }: Props) {
               </button>
             </div>
 
-            {vista === "tarjetas" ? (
+            {vista === "eventos" ? (
               <div className="relative">
                 <div className="no-scrollbar flex gap-2 overflow-x-auto">
                   {FILTROS.map((f) => {
@@ -340,7 +369,7 @@ export default function CommandCenter({ eventosIniciales }: Props) {
 
         {/* Pie */}
         <footer className="mt-auto flex items-center justify-between border-t border-linea-suave pt-4 text-[11px] text-tinta-muda">
-          <p>Centro de Mando · v0.4 — tu registro, tu negocio</p>
+          <p>Centro de Mando · v0.5 — tu registro, tu negocio</p>
           <p>
             {eventos.length} {eventos.length === 1 ? "evento" : "eventos"} ·{" "}
             <span className="text-acento/70">0 ms</span> por toque

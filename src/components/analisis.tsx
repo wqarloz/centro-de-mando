@@ -76,10 +76,13 @@ export default function Analisis({ eventos }: Props) {
   const hoy = useHoy();
   // ── Distribución del dinero por estatus ────────────────────────────────────
   const dist = useMemo(() => {
-    const montos = { PROSPECTO: 0, CONFIRMADO: 0, FACTURADO: 0, CANCELADO: 0 } as Record<
-      string,
-      number
-    >;
+    const montos = {
+      PROSPECTO: 0,
+      CONFIRMADO: 0,
+      REALIZADO: 0,
+      PAGADO: 0,
+      CANCELADO: 0,
+    } as Record<string, number>;
     const conteo = { ...montos };
     for (const e of eventos) {
       montos[e.estatus] += e.tarifa;
@@ -96,9 +99,13 @@ export default function Analisis({ eventos }: Props) {
   }, [eventos]);
 
   // ── Prioridades de cobranza ────────────────────────────────────────────────
+  // Lo pagado ya no se cobra; lo realizado sí (trabajado, esperando cierre).
   const cobranza = useMemo(() => {
     return eventos
-      .filter((e) => e.estatus !== "CANCELADO" && saldoDe(e) > 0)
+      .filter(
+        (e) =>
+          e.estatus !== "CANCELADO" && e.estatus !== "PAGADO" && saldoDe(e) > 0
+      )
       .sort((a, b) => {
         const fa = parsearLimite(a.fechaLimitePago);
         const fb = parsearLimite(b.fechaLimitePago);
@@ -110,17 +117,29 @@ export default function Analisis({ eventos }: Props) {
   }, [eventos]);
 
   // ── Próximos servicios ─────────────────────────────────────────────────────
+  // Lo ya realizado salió del radar de “lo que viene”.
   const proximos = useMemo(() => {
     if (!hoy) return [];
     return eventos
       .filter((e) => {
-        if (e.estatus === "CANCELADO" || !e.fechaInicio) return false;
+        if (
+          e.estatus === "CANCELADO" ||
+          e.estatus === "REALIZADO" ||
+          !e.fechaInicio
+        )
+          return false;
         const ini = fechaDisplay(e.fechaInicio);
         return ini !== null && differenceInCalendarDays(ini, hoy) >= 0;
       })
       .sort((a, b) => (a.fechaInicio ?? "").localeCompare(b.fechaInicio ?? ""))
       .slice(0, 6);
   }, [eventos, hoy]);
+
+  // ── Cancelaciones (con su motivo) ──────────────────────────────────────────
+  const cancelados = useMemo(
+    () => eventos.filter((e) => e.estatus === "CANCELADO"),
+    [eventos]
+  );
 
   if (eventos.length === 0) {
     return (
@@ -268,6 +287,37 @@ export default function Analisis({ eventos }: Props) {
           </div>
         )}
       </Seccion>
+
+      {/* ── Cancelaciones ── */}
+      {cancelados.length > 0 ? (
+        <Seccion titulo="Cancelaciones" conteo={cancelados.length}>
+          <div className="divide-y divide-linea-suave">
+            {cancelados.map((e) => {
+              const ini = fechaDisplay(e.fechaInicio);
+              const fin = fechaDisplay(e.fechaFin);
+              return (
+                <div key={e.id} className="flex items-center gap-3 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-tinta line-through decoration-tinta-muda">
+                      {e.cliente}
+                    </p>
+                    <p className="mt-0.5 truncate text-[11px] text-tinta-muda">
+                      {ini ? rangoCorto(ini, fin) : "sin fecha"}
+                      {e.idEvento ? ` · ${e.idEvento}` : ""}
+                      {e.razonCancelacion
+                        ? ` · Motivo: ${e.razonCancelacion}`
+                        : " · sin motivo"}
+                    </p>
+                  </div>
+                  <p className="shrink-0 text-xs text-tinta-muda">
+                    $ {formatoTarifa(e.tarifa)}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </Seccion>
+      ) : null}
 
       {/* ── Próximos servicios ── */}
       <Seccion titulo="Próximos servicios" conteo={proximos.length}>

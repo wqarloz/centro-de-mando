@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Pencil, Plus } from "lucide-react";
+import { Calendar1, Check, Pencil, Plus } from "lucide-react";
 import { format } from "date-fns";
 import {
   Dialog,
@@ -22,11 +22,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  calcularImpuestos,
   ESTATUS_CONFIG,
   ESTATUS_VALIDOS,
   type EventoDTO,
   type Estatus,
+  formatoDinero,
   formatoTarifa,
+  IDIOMAS_VALIDOS,
+  IMPUESTOS_CONFIG,
+  type ImpuestosTipo,
   type Modalidad,
   MODALIDAD_CONFIG,
 } from "@/lib/estatus";
@@ -51,18 +56,20 @@ type FormState = {
   contacto: string;
   telefono: string;
   correo: string;
-  idiomas: string;
+  idiomas: string; // "" | "EN - ES" | "PO - ES"
   tema: string;
   modalidad: Modalidad;
   ciudad: string;
   estatus: Estatus;
+  unDia: boolean;
   fechaInicio: string;
   fechaFin: string;
-  fechasExtra: string;
   horaInicio: string;
   horaFin: string;
+  tarifaPorDia: string;
   tarifa: string;
   anticipo: string;
+  impuestosTipo: "" | ImpuestosTipo;
   fechaLimitePago: string;
   linkGlosario: string;
   notas: string;
@@ -78,13 +85,15 @@ const VACIO: FormState = {
   modalidad: "PRESENCIAL_CDMX",
   ciudad: "",
   estatus: "PROSPECTO",
+  unDia: false,
   fechaInicio: "",
   fechaFin: "",
-  fechasExtra: "",
   horaInicio: "",
   horaFin: "",
+  tarifaPorDia: "",
   tarifa: "",
   anticipo: "",
+  impuestosTipo: "",
   fechaLimitePago: "",
   linkGlosario: "",
   notas: "",
@@ -101,23 +110,29 @@ function desdeEvento(e: EventoDTO): FormState {
     const d = fechaDisplay(s);
     return d ? format(d, "yyyy-MM-dd") : "";
   };
+  const ini = fecha(e.fechaInicio);
+  const fin = fecha(e.fechaFin);
   return {
     cliente: e.cliente,
     contacto: e.contacto ?? "",
     telefono: e.telefono ?? "",
     correo: e.correo ?? "",
-    idiomas: e.idiomas ?? "",
+    idiomas: (IDIOMAS_VALIDOS as readonly string[]).includes(e.idiomas ?? "")
+      ? (e.idiomas as string)
+      : "",
     tema: e.tema ?? "",
     modalidad: e.modalidad,
     ciudad: e.ciudad ?? "",
     estatus: e.estatus,
-    fechaInicio: fecha(e.fechaInicio),
-    fechaFin: fecha(e.fechaFin),
-    fechasExtra: e.fechasExtra ?? "",
+    unDia: !fin || fin === ini,
+    fechaInicio: ini,
+    fechaFin: fin,
     horaInicio: e.horaInicio ?? "",
     horaFin: e.horaFin ?? "",
+    tarifaPorDia: e.tarifaPorDia != null ? String(e.tarifaPorDia) : "",
     tarifa: e.tarifa != null ? String(e.tarifa) : "",
     anticipo: e.anticipo != null ? String(e.anticipo) : "",
+    impuestosTipo: e.impuestosTipo ?? "",
     fechaLimitePago:
       e.fechaLimitePago && /^\d{4}-\d{2}-\d{2}$/.test(e.fechaLimitePago)
         ? e.fechaLimitePago
@@ -125,6 +140,17 @@ function desdeEvento(e: EventoDTO): FormState {
     linkGlosario: e.linkGlosario ?? "",
     notas: e.notas ?? "",
   };
+}
+
+/** Días que abarca el evento según las fechas del formulario. */
+function diasDelForm(f: Pick<FormState, "fechaInicio" | "fechaFin" | "unDia">): number | null {
+  if (!f.fechaInicio) return null;
+  if (f.unDia) return 1;
+  if (!f.fechaFin) return 1;
+  const ini = new Date(f.fechaInicio + "T12:00:00");
+  const fin = new Date(f.fechaFin + "T12:00:00");
+  const d = Math.round((fin.getTime() - ini.getTime()) / 86400000) + 1;
+  return d < 1 ? 1 : d;
 }
 
 export default function EventoForm({ onCreado, evento, onEditado }: Props) {
@@ -145,17 +171,33 @@ export default function EventoForm({ onCreado, evento, onEditado }: Props) {
   const set = (k: keyof FormState) => (v: string) =>
     setForm((f) => ({ ...f, [k]: v }));
 
+  // ── El "un día" mantiene la fecha fin pegada a la fecha inicio ──
+  useEffect(() => {
+    if (form.unDia && form.fechaInicio) {
+      setForm((f) =>
+        f.fechaFin === f.fechaInicio ? f : { ...f, fechaFin: f.fechaInicio }
+      );
+    }
+  }, [form.unDia, form.fechaInicio]);
+
+  const dias = useMemo(() => diasDelForm(form), [form]);
+
+  // ── Tarifa por día → total autocalculado ──
+  useEffect(() => {
+    const porDia = parseFloat(form.tarifaPorDia);
+    if (Number.isFinite(porDia) && porDia > 0 && dias && dias >= 1) {
+      const total = porDia * dias;
+      setForm((f) =>
+        f.tarifa === String(total) ? f : { ...f, tarifa: String(total) }
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.tarifaPorDia, dias]);
+
   // Vista previa de lo que se calculará automáticamente
   const previa = useMemo(() => {
     const partes: string[] = [];
-    if (form.fechaInicio) {
-      const ini = new Date(form.fechaInicio + "T12:00:00");
-      const fin = form.fechaFin ? new Date(form.fechaFin + "T12:00:00") : null;
-      const dias = fin
-        ? Math.round((fin.getTime() - ini.getTime()) / 86400000) + 1
-        : 1;
-      partes.push(`${dias} ${dias === 1 ? "día" : "días"}`);
-    }
+    if (dias) partes.push(`${dias} ${dias === 1 ? "día" : "días"}`);
     if (/^\d{1,2}:\d{2}$/.test(form.horaInicio) && /^\d{1,2}:\d{2}$/.test(form.horaFin)) {
       const [h1, m1] = form.horaInicio.split(":").map(Number);
       const [h2, m2] = form.horaFin.split(":").map(Number);
@@ -166,13 +208,33 @@ export default function EventoForm({ onCreado, evento, onEditado }: Props) {
         );
       }
     }
+    const porDia = parseFloat(form.tarifaPorDia);
+    if (Number.isFinite(porDia) && porDia > 0) {
+      partes.push(`$ ${formatoTarifa(porDia)} por día`);
+    }
     const tarifa = parseFloat(form.tarifa);
     const anticipo = parseFloat(form.anticipo) || 0;
     if (Number.isFinite(tarifa)) {
       partes.push(`saldo $ ${formatoTarifa(Math.max(tarifa - anticipo, 0))}`);
     }
     return partes.join(" · ");
-  }, [form.fechaInicio, form.fechaFin, form.horaInicio, form.horaFin, form.tarifa, form.anticipo]);
+  }, [form, dias]);
+
+  // ── Desglose de impuestos en vivo ──
+  const desglose = useMemo(() => {
+    const tarifa = parseFloat(form.tarifa);
+    if (!form.impuestosTipo || !Number.isFinite(tarifa) || tarifa <= 0) return null;
+    return {
+      tipo: form.impuestosTipo,
+      ...calcularImpuestos(tarifa, form.impuestosTipo),
+    };
+  }, [form.impuestosTipo, form.tarifa]);
+
+  const alternarImpuestos = (t: ImpuestosTipo) =>
+    setForm((f) => ({
+      ...f,
+      impuestosTipo: f.impuestosTipo === t ? "" : t,
+    }));
 
   const guardar = async () => {
     setError("");
@@ -203,12 +265,19 @@ export default function EventoForm({ onCreado, evento, onEditado }: Props) {
             modalidad: form.modalidad,
             ciudad: form.modalidad === "FORANEO" ? form.ciudad || null : null,
             estatus: form.estatus,
+            // El motivo de cancelación se captura al cancelar (en la tarjeta);
+            // al editar se conserva el que ya estaba guardado.
+            razonCancelacion: evento?.razonCancelacion ?? null,
             fechaInicio: form.fechaInicio || null,
-            fechaFin: form.fechaFin || null,
-            fechasExtra: form.fechasExtra || null,
+            fechaFin: form.unDia
+              ? form.fechaInicio || null
+              : form.fechaFin || null,
             horaInicio: form.horaInicio || null,
             horaFin: form.horaFin || null,
             tarifa,
+            tarifaPorDia:
+              form.tarifaPorDia.trim() === "" ? null : parseFloat(form.tarifaPorDia) || null,
+            impuestosTipo: form.impuestosTipo || null,
             anticipo: form.anticipo.trim() === "" ? 0 : parseFloat(form.anticipo) || 0,
             fechaLimitePago: form.fechaLimitePago || null,
             linkGlosario: form.linkGlosario || null,
@@ -359,16 +428,25 @@ export default function EventoForm({ onCreado, evento, onEditado }: Props) {
             <p className={SECCION}>El evento</p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <label className={ETIQUETA} htmlFor="f-idiomas">
-                  Idiomas
-                </label>
-                <Input
-                  id="f-idiomas"
-                  value={form.idiomas}
-                  onChange={(e) => set("idiomas")(e.target.value)}
-                  placeholder="EN - ES"
-                  className="h-10 border-linea-fuerte bg-panel placeholder:text-tinta-muda"
-                />
+                <label className={ETIQUETA}>Idiomas</label>
+                <Select
+                  value={form.idiomas || "SIN-DEFINIR"}
+                  onValueChange={(v) => set("idiomas")(v === "SIN-DEFINIR" ? "" : v)}
+                >
+                  <SelectTrigger className="h-10 border-linea-fuerte bg-panel">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="border-linea-fuerte bg-tarjeta text-tinta-suave">
+                    <SelectItem value="SIN-DEFINIR" className="focus:bg-panel">
+                      Sin definir
+                    </SelectItem>
+                    {IDIOMAS_VALIDOS.map((i) => (
+                      <SelectItem key={i} value={i} className="focus:bg-panel">
+                        {i}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-1.5">
                 <label className={ETIQUETA} htmlFor="f-tema">
@@ -435,10 +513,39 @@ export default function EventoForm({ onCreado, evento, onEditado }: Props) {
           {/* ── Fechas y horario ── */}
           <section className="space-y-3">
             <p className={SECCION}>Fechas y horario</p>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={form.unDia}
+              onClick={() =>
+                setForm((f) => ({
+                  ...f,
+                  unDia: !f.unDia,
+                  ...( !f.unDia && f.fechaInicio ? { fechaFin: f.fechaInicio } : {}),
+                }))
+              }
+              className={`inline-flex h-10 items-center gap-2 rounded-full border px-4 text-xs font-medium transition-colors ${
+                form.unDia
+                  ? "border-acento/40 bg-acento/10 text-acento-claro"
+                  : "border-linea-fuerte text-tinta-suave hover:border-linea-hover hover:text-tinta"
+              }`}
+            >
+              <span
+                aria-hidden
+                className={`grid h-4 w-4 place-items-center rounded-full border ${
+                  form.unDia
+                    ? "border-acento/60 bg-acento/20 text-acento-claro"
+                    : "border-tinta-muda text-transparent"
+                }`}
+              >
+                <Check className="h-2.5 w-2.5" />
+              </span>
+              Evento de un solo día
+            </button>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
+              <div className={`space-y-1.5 ${form.unDia ? "col-span-2" : ""}`}>
                 <label className={ETIQUETA} htmlFor="f-ini">
-                  Fecha inicio
+                  {form.unDia ? "Fecha del evento" : "Fecha inicio"}
                 </label>
                 <Input
                   id="f-ini"
@@ -448,18 +555,20 @@ export default function EventoForm({ onCreado, evento, onEditado }: Props) {
                   className="h-10 border-linea-fuerte bg-panel"
                 />
               </div>
-              <div className="space-y-1.5">
-                <label className={ETIQUETA} htmlFor="f-fin">
-                  Fecha fin
-                </label>
-                <Input
-                  id="f-fin"
-                  type="date"
-                  value={form.fechaFin}
-                  onChange={(e) => set("fechaFin")(e.target.value)}
-                  className="h-10 border-linea-fuerte bg-panel"
-                />
-              </div>
+              {form.unDia ? null : (
+                <div className="space-y-1.5">
+                  <label className={ETIQUETA} htmlFor="f-fin">
+                    Fecha fin
+                  </label>
+                  <Input
+                    id="f-fin"
+                    type="date"
+                    value={form.fechaFin}
+                    onChange={(e) => set("fechaFin")(e.target.value)}
+                    className="h-10 border-linea-fuerte bg-panel"
+                  />
+                </div>
+              )}
               <div className="space-y-1.5">
                 <label className={ETIQUETA} htmlFor="f-hini">
                   Hora inicio
@@ -484,25 +593,34 @@ export default function EventoForm({ onCreado, evento, onEditado }: Props) {
                   className="h-10 border-linea-fuerte bg-panel"
                 />
               </div>
-              <div className="space-y-1.5 col-span-2">
-                <label className={ETIQUETA} htmlFor="f-extra">
-                  Fechas adicionales (opcional)
-                </label>
-                <Input
-                  id="f-extra"
-                  value={form.fechasExtra}
-                  onChange={(e) => set("fechasExtra")(e.target.value)}
-                  placeholder="ej. 24 nov · 1 dic"
-                  className="h-10 border-linea-fuerte bg-panel placeholder:text-tinta-muda"
-                />
-              </div>
             </div>
+            {form.unDia ? (
+              <p className="inline-flex items-center gap-1.5 text-[11px] text-tinta-muda">
+                <Calendar1 className="h-3 w-3 text-acento/70" aria-hidden />
+                Un solo día — sin fecha fin que repetir.
+              </p>
+            ) : null}
           </section>
 
           {/* ── Dinero ── */}
           <section className="space-y-3">
             <p className={SECCION}>Dinero (MXN)</p>
             <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className={ETIQUETA} htmlFor="f-pordia">
+                  Tarifa por día (opcional)
+                </label>
+                <Input
+                  id="f-pordia"
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  value={form.tarifaPorDia}
+                  onChange={(e) => set("tarifaPorDia")(e.target.value)}
+                  placeholder="3500"
+                  className="h-10 border-linea-fuerte bg-panel placeholder:text-tinta-muda"
+                />
+              </div>
               <div className="space-y-1.5">
                 <label className={ETIQUETA} htmlFor="f-tarifa">
                   Tarifa total <span className="text-acento">*</span>
@@ -533,9 +651,9 @@ export default function EventoForm({ onCreado, evento, onEditado }: Props) {
                   className="h-10 border-linea-fuerte bg-panel placeholder:text-tinta-muda"
                 />
               </div>
-              <div className="space-y-1.5 col-span-2">
+              <div className="space-y-1.5">
                 <label className={ETIQUETA} htmlFor="f-limite">
-                  Fecha límite de pago (opcional)
+                  Fecha límite de pago
                 </label>
                 <Input
                   id="f-limite"
@@ -546,6 +664,66 @@ export default function EventoForm({ onCreado, evento, onEditado }: Props) {
                 />
               </div>
             </div>
+
+            {/* Impuestos opcionales */}
+            <div className="space-y-1.5">
+              <p className={ETIQUETA}>Impuestos (opcional)</p>
+              <div className="grid grid-cols-2 gap-2">
+                {(Object.keys(IMPUESTOS_CONFIG) as ImpuestosTipo[]).map((t) => {
+                  const activo = form.impuestosTipo === t;
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      aria-pressed={activo}
+                      onClick={() => alternarImpuestos(t)}
+                      title={IMPUESTOS_CONFIG[t].detalle}
+                      className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-full border px-3 text-[11px] font-medium transition-colors ${
+                        activo
+                          ? "border-acento/40 bg-acento/10 text-acento-claro"
+                          : "border-linea-fuerte text-tinta-suave hover:border-linea-hover hover:text-tinta"
+                      }`}
+                    >
+                      {IMPUESTOS_CONFIG[t].corto}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] leading-relaxed text-tinta-muda">
+                {form.impuestosTipo
+                  ? IMPUESTOS_CONFIG[form.impuestosTipo].detalle
+                  : "Tócalos para calcular el desglose. Persona moral: retiene IVA e ISR · FAE: solo IVA."}
+              </p>
+            </div>
+
+            {desglose ? (
+              <div className="rounded-lg border border-linea-fuerte bg-panel px-3 py-2.5 text-[11px] leading-relaxed text-tinta-muda">
+                <p>
+                  <span className="text-acento-claro">Factura:</span>{" "}
+                  $ {formatoDinero(desglose.factura)}{" "}
+                  <span className="text-tinta-muda">
+                    (tarifa + IVA 16% de $ {formatoDinero(desglose.iva)})
+                  </span>
+                </p>
+                {desglose.tipo === "MORAL" ? (
+                  <>
+                    <p>
+                      Retenciones: IVA −$ {formatoDinero(desglose.retIva)} · ISR −${" "}
+                      {formatoDinero(desglose.retIsr)}
+                    </p>
+                    <p>
+                      <span className="text-acento-claro">Neto a recibir:</span>{" "}
+                      $ {formatoDinero(desglose.neto)}
+                    </p>
+                  </>
+                ) : (
+                  <p>
+                    <span className="text-acento-claro">Neto a recibir:</span>{" "}
+                    $ {formatoDinero(desglose.neto)} — sin retenciones
+                  </p>
+                )}
+              </div>
+            ) : null}
           </section>
 
           {/* ── Notas y glosario ── */}
