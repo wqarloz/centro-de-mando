@@ -29,6 +29,7 @@ Ver `.env.example`.
 ## Desarrollo local (el taller)
 
 ```bash
+v0.5
 bun install
 bunx prisma generate
 bun run dev
