@@ -1,16 +1,18 @@
 {
   "name": "centro-de-mando",
-  "version": "0.5.0",
+  "version": "0.10.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3000",
-    "build": "next build",
-    "start": "next start -p 3000",
+    "dev": "bash scripts/servir.sh",
+    "dev:raw": "next dev -p 3000 2>&1 | tee dev.log",
+    "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
+    "start": "NODE_ENV=production HOSTNAME=0.0.0.0 bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
     "db:push": "prisma db push --accept-data-loss",
     "db:generate": "prisma generate"
   },
   "dependencies": {
+    "@pdf-lib/fontkit": "1.1.1",
     "@prisma/client": "^6.11.1",
     "@radix-ui/react-alert-dialog": "^1.1.14",
     "@radix-ui/react-dialog": "^1.1.14",
@@ -23,6 +25,7 @@
     "framer-motion": "^12.23.2",
     "lucide-react": "^0.525.0",
     "next": "^16.1.1",
+    "pdf-lib": "^1.17.1",
     "prisma": "^6.11.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
