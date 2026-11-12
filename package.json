@@ -1,6 +1,6 @@
 {
   "name": "centro-de-mando",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "private": true,
   "scripts": {
     "dev": "bash scripts/servir.sh",
@@ -19,6 +19,7 @@
     "@radix-ui/react-select": "^2.2.5",
     "@radix-ui/react-slot": "^1.5.0",
     "@radix-ui/react-toast": "^1.2.14",
+    "@sparticuz/chromium": "^153.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
@@ -27,6 +28,7 @@
     "next": "^16.1.1",
     "pdf-lib": "^1.17.1",
     "prisma": "^6.11.1",
+    "puppeteer-core": "^25.17.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^3.3.1"
